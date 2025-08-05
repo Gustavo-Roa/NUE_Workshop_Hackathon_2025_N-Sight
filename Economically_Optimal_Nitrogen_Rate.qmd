@@ -1,0 +1,263 @@
+---
+title: "Economically Optimal Nitrogen Rate (EONR)"
+subtitle: "Estimating the EONR, using Model averaging and Boostraping aggregate"
+author: "Gustavo Roa, Sofia Cominelli, Raghav Joshi and Bryan Rutter"
+format: 
+  html:
+    self-contained: true
+---
+
+# Load package 
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE, include=FALSE}
+# R stuff and visualization
+library(tidyverse) # Data manipulation and visualization
+
+# Models 
+library(nlraa) # Self-starting functions for various regression models
+library(boot) # Bootstrap functions
+
+# Visualization
+library(viridis) # Color palettes
+library(viridisLite) # Color palettes for ggplot2
+library(ggpubr) # Grid figure 
+
+```
+
+
+# Import Data
+
+```{r}
+raw_data <- read.csv(file = "./Data_example.csv")
+print(raw_data)
+
+str(raw_data)
+
+```
+
+# Data transformation
+```{r}
+df <- raw_data %>% 
+  mutate(rev_usd_ha = round(Obs.Yield.Mg.ha*196,2), 
+         Ncost_usd_ha = (N.rate*1.10),
+         Seedcost_usd_ha = (Pl.m2*(250/80000)*10000),
+         profit_usd_ha = rev_usd_ha - Ncost_usd_ha - Seedcost_usd_ha)
+df 
+```
+
+
+# EONR
+## Fit models
+
+```{r}
+# Linear-Plateau
+mod1_EONR <- nls(formula = profit_usd_ha ~ SSlinp(N.rate, a, b, xs), data = df) 
+mod1_EONR_value <- coef(mod1_EONR)["xs"]
+
+
+# Quadratic-Plateau
+mod2_EONR <- nls(formula = profit_usd_ha ~ SSquadp3xs(N.rate, a, b, xs), data = df) 
+mod2_EONR_value <- coef(mod2_EONR)["xs"]
+
+
+# Quadratic
+mod3_EONR <- lm(formula = profit_usd_ha ~ N.rate + I(N.rate^2), data = df) 
+coefs_mod3_EONR <- coef(mod3_EONR)
+mod3_EONR_value <- -coefs_mod3_EONR["N.rate"] / (2 * coefs_mod3_EONR["I(N.rate^2)"])
+
+# Mitscherlich
+mod4_EONR <- nls(profit_usd_ha ~ a * (1 - exp(-c * (N.rate + b))),
+                     data = df,
+                     start = list(a = max(df$profit_usd_ha), b = 10, c = 0.05)) 
+              coefs_mod4 <- coef(mod4_EONR)
+              a_hat_mod4 <- coefs_mod4["a"]
+              b_hat_mod4 <- coefs_mod4["b"]
+              c_hat_mod4 <- coefs_mod4["c"]
+mod4_EONR_value <- (-log(1 - 0.95) / c_hat_mod4) - b_hat_mod4
+
+
+```
+
+$$
+x = (-log(1-0.95) / c) - b
+$$
+
+
+## Model diagnostics
+### AIC and Weight
+```{r}
+
+ictab <- IC_tab(mod1_EONR, mod2_EONR, mod3_EONR, mod4_EONR)
+ictab
+
+```
+
+### Combine model information with EONR values
+```{r}
+# Define model name, EONR, and RMSE
+model_info_EONR <- data.frame(
+  model = c("mod1_EONR", "mod2_EONR", "mod3_EONR", "mod4_EONR"),
+  model_name = c("Linear-Plateau", "Quadratic-Plateau", "Quadratic", "Mitscherlich"),
+  
+  RMSE = c(
+    sqrt(mean(residuals(mod1_EONR)^2)),
+    sqrt(mean(residuals(mod2_EONR)^2)),
+    sqrt(mean(residuals(mod3_EONR)^2)),
+    sqrt(mean(residuals(mod4_EONR)^2))
+  ),
+  EONR = c(mod1_EONR_value, mod2_EONR_value, mod3_EONR_value, mod4_EONR_value)
+)
+
+# Merge with ictab and format output
+ictab_combined_EONR <- ictab %>%
+  left_join(model_info_EONR, by = "model") %>%
+  arrange(dAIC) %>%
+  mutate(
+    EONR = round(EONR, 2),
+    RMSE = round(RMSE, 3)
+  ) %>%
+  select(model, model_name, everything())
+
+# View final table
+ictab_combined_EONR
+
+
+```
+
+
+## New df for EONR predictions
+
+```{r}
+# New df
+new_data_EONR <- data.frame(N.rate  = seq(from = 0, to = 260, by = 0.1))
+
+# Model 1
+prds_mod1_EONR <- predict_nls(object = mod1_EONR, newdata = new_data_EONR, interval = "conf") 
+ndatA_mod1_EONR <- cbind(new_data_EONR, prds_mod1_EONR) 
+
+# Model 2
+prds_mod2_EONR <- predict_nls(object = mod2_EONR, newdata = new_data_EONR, interval = "conf") 
+ndatA_mod2_EONR <- cbind(new_data_EONR, prds_mod2_EONR)
+
+# Model 3
+prds_mod3_EONR <- predict(object = mod3_EONR, newdata = new_data_EONR, interval = "conf") 
+ndatA_mod3_EONR <- cbind(new_data_EONR, prds_mod3_EONR) 
+
+# Model 4
+prds_mod4_EONR <- predict_nls(object = mod4_EONR, newdata = new_data_EONR, interval = "conf") 
+ndatA_mod4_EONR <- cbind(new_data_EONR, prds_mod4_EONR)
+
+```
+
+## Model averaging
+
+```{r}
+# Calculate model-averaged EONR
+CL_avg_EONR <- sum(ictab_combined_EONR$weight * ictab_combined_EONR$EONR)
+
+```
+
+## Bagging for CI 
+### Define the Bootstrap Function
+```{r}
+boot_model_avg_optimum <- function(data, predictor, response, R = 1000) {
+  set.seed(123)
+  avg_opt_vals <- numeric(R)
+
+  for (i in 1:R) {
+    sample_data <- data[sample(nrow(data), replace = TRUE), ]
+
+    opt_vals <- c(NA, NA, NA, NA)
+
+    try({
+      formula_lp <- as.formula(paste(response, "~ SSlinp(", predictor, ", a, b, xs)"))
+      mod1 <- nls(formula_lp, data = sample_data)
+      opt_vals[1] <- coef(mod1)["xs"]
+    }, silent = TRUE)
+
+    try({
+      formula_qp <- as.formula(paste(response, "~ SSquadp3xs(", predictor, ", a, b, xs)"))
+      mod2 <- nls(formula_qp, data = sample_data)
+      opt_vals[2] <- coef(mod2)["xs"]
+    }, silent = TRUE)
+
+    try({
+      formula_q <- as.formula(paste(response, "~", predictor, "+ I(", predictor, "^2)"))
+      mod3 <- lm(formula_q, data = sample_data)
+      coefs <- coef(mod3)
+      opt_vals[3] <- -coefs[predictor] / (2 * coefs[paste0("I(", predictor, "^2)")])
+    }, silent = TRUE)
+
+    try({
+      formula_mitsch <- as.formula(paste(response, "~ a * (1 - exp(-c * (", predictor, " + b)))"))
+      mod4 <- nls(formula_mitsch,
+                  data = sample_data,
+                  start = list(a = max(sample_data[[response]]), b = 10, c = 0.05))
+      coefs <- coef(mod4)
+      opt_vals[4] <- (-log(1 - 0.95) / coefs["c"]) - coefs["b"]
+    }, silent = TRUE)
+
+    avg_opt_vals[i] <- mean(opt_vals, na.rm = TRUE)
+  }
+
+  return(avg_opt_vals)
+}
+
+```
+
+### Run the Bootstrap
+```{r}
+eonr_boot_samples <- boot_model_avg_optimum(
+  data = df,
+  predictor = "N.rate",
+  response = "profit_usd_ha",
+  R = 5000
+)
+
+eonr_mean <- mean(eonr_boot_samples, na.rm = TRUE)
+eonr_ci <- quantile(eonr_boot_samples, c(0.025, 0.975), na.rm = TRUE)
+
+```
+
+
+## Create plot
+
+```{r, fig.width=14, fig.height=8, warning=FALSE}
+
+Fig_EONR <- ggplot(data = df) + 
+  geom_point(aes(x = N.rate, y = profit_usd_ha),  size = 3, shape = 21, fill = "black", color = "gray", alpha=0.5) + 
+  geom_line(data = ndatA_mod1_EONR, linewidth = 1.5, aes(N.rate, Estimate, color = "Linear-Plateau (LP)")) +
+  geom_line(data = ndatA_mod2_EONR, linewidth = 1.5, aes(N.rate, Estimate, color = "Quadratic-Plateau (QP)")) +
+  geom_line(data = ndatA_mod3_EONR, linewidth = 1.5, aes(N.rate, fit, color = "Quadratic (Q)")) +
+  geom_line(data = ndatA_mod4_EONR, linewidth = 1.5, aes(N.rate, Estimate, color = "Mitscherlich (Mi)")) +
+  
+  # Add error bar for average and CI
+  geom_point(aes(x = CL_avg_EONR, y = 500, color = "Average of models (Avg)"), size= 8, shape=17) + 
+  geom_errorbarh(aes(xmin = eonr_ci[1], xmax = eonr_ci[2], y = 500, color = "Average of models (Avg)"), height = 0.5, size=2) + 
+  
+    annotate(geom = "text", x = CL_avg_EONR, y = 400, label = paste("Avg =", round(CL_avg_EONR, 0)), size = 5) +
+  annotate(geom = "text", x = CL_avg_EONR, y = 300, label = paste("CI =", round(eonr_ci[1],0), "-", round(eonr_ci[2],0)), size = 5) +
+
+  # Add the critical points and text annotations
+  annotate(geom = "text", x = 260, y = 400, label = paste("LP =", round(mod1_EONR_value, 0)), size = 5) +
+  annotate(geom = "text", x = 260, y = 200, label = paste("QP =", round(mod2_EONR_value, 0)), size = 5) +
+  annotate(geom = "text", x = 260, y = 100, label = paste("Q =", round(mod3_EONR_value, 0)), size = 5) +
+  annotate(geom = "text", x = 260, y = 300, label = paste("Mi =", round(mod4_EONR_value, 0)), size = 5) +
+  
+  # Theme adjustments
+  labs(x = expression(Nitrogen~rate~(kg~ha^-1)), y = expression(Profit~("$"~ha^-1)), title = "EONR") +
+  scale_x_continuous(limits = c(0, 280), breaks = seq(0, 280, by = 40)) +
+  scale_color_viridis_d(option = "D") + 
+  scale_fill_viridis_d(option = "H", direction = -1) + 
+  guides(color = guide_legend(title = "Models")) + 
+  theme_classic(base_size = 18) +
+  theme(axis.text = element_text(color = "black"), 
+        legend.key = element_rect(color = "white"), 
+        legend.position = "right") 
+
+# Print the plot
+Fig_EONR
+
+```
+
+

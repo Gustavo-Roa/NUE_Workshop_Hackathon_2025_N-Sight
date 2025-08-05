@@ -1,0 +1,254 @@
+---
+title: "Bayesian Quadratic Response-Surface Model"
+author: "Gustavo Roa, Sofia Cominelli, Raghav Joshi and Bryan Rutter"
+format: 
+  html:
+    self-contained: false
+---
+
+
+# Load package
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE, include=FALSE}
+# R stuff and visualization
+library(tidyverse) # Data manipulation and visualization
+
+# Models 
+library(nimble) # Bayesian models
+library(coda) # MCMC diagnostics
+
+# Visualization
+library(bayesplot) # Bayesian visualization
+library(plotly) # Interactive plots
+library(viridis) # Color palettes
+library(viridisLite) # Color palettes for ggplot2
+library(reshape2) # Reshape data for plotting
+
+```
+
+# Import Data
+
+```{r}
+raw_data <- read.csv(file = "./Data_example.csv")
+print(raw_data)
+
+str(raw_data)
+
+```
+
+# Data Preparation
+```{r}
+df <- raw_data %>% 
+  mutate(rev_usd_ha = round(Obs.Yield.Mg.ha*196,2), 
+         Ncost_usd_ha = (N.rate*1.10),
+         Seedcost_usd_ha = (Pl.m2*(250/80000)*10000),
+         profit_usd_ha = rev_usd_ha - Ncost_usd_ha - Seedcost_usd_ha)
+df
+
+```
+
+# Design Matrix
+```{r}
+X <- df %>%
+  transmute(
+    D = Pl.m2,
+    D2 = Pl.m2^2,
+    N = N.rate,
+    N2 = N.rate^2,
+    NxD = N.rate * Pl.m2
+  ) %>%
+  as.matrix()
+
+Y <- df$profit_usd_ha 
+N <- length(Y)
+
+```
+
+# Model Code
+```{r}
+
+code <- nimbleCode({
+  for (i in 1:N) {
+    y[i] ~ dnorm(mu[i], sd = sigma2)
+    mu[i] <- beta_0 +               # Intercept
+             beta_1 * X[i, 1] +     # Linear effect of D
+             beta_2 * X[i, 2] +     # Quadratic effect of D^2
+             beta_3 * X[i, 3] +     # Linear effect of N
+             beta_4 * X[i, 4] +     # Quadratic effect of N^2
+             beta_5 * X[i, 5]       # Interaction term (N × D)
+  }
+
+# Prior assumptions:
+  beta_0 ~ dnorm(0, sd = 10)        # beta_0 (intercept)
+  beta_1 ~ dgamma(2, 1)             # beta_1 (linear effect of D)
+  beta_2 ~ dnorm(0, sd = 10)        # beta_2 (quadratic effect of D^2)
+  beta_3 ~ dgamma(2, 1)             # beta_3 (linear effect of N)
+  beta_4 ~ dnorm(0, sd = 10)        # beta_4 (quadratic effect of N^2)
+  beta_5 ~ dnorm(0, sd = 10)        # beta_5 (interaction N × D)
+  sigma2 ~ dgamma(2, 5)             # Residual variance
+})
+
+```
+
+# Run Model (NIMBLE)
+
+```{r}
+data <- list(y = Y, X = X)
+constants <- list(N = N)
+inits <- list(
+  beta_0 = 0, beta_1 = 1, beta_2 = 0,
+  beta_3 = 1, beta_4 = 0, beta_5 = 0,
+  sigma2 = 1, mu = rep(0, N)
+)
+
+monitors <- c("beta_0", "beta_1", "beta_2", "beta_3", "beta_4", "beta_5", "sigma2")
+
+set.seed(123)  # for reproducibility
+
+mcmc_out <- nimbleMCMC(
+  code = code,
+  data = data,
+  constants = constants,
+  inits = inits,
+  monitors = monitors,
+  niter = 10000,
+  nburnin = 2000,
+  thin = 10,
+  nchains = 3,
+  summary = TRUE,
+  WAIC = TRUE,
+  samplesAsCodaMCMC = TRUE
+)
+
+```
+
+## Model diagnostics
+```{r}
+# Extract posterior samples
+mcmc_samples <- mcmc_out$samples
+
+# Convert to matrix
+posterior_matrix <- as.matrix(mcmc_samples)
+
+# Trace plot
+mcmc_trace(posterior_matrix, pars = c("beta_0", "beta_1", "beta_2","beta_3", "beta_4", "beta_5", "sigma2"))
+
+
+```
+
+
+# Post-processing to Estimate 
+```{r}
+samples_df <- as.data.frame(as.matrix(mcmc_out$samples))
+
+df_results <- samples_df %>%
+  mutate(
+    x_opt = (((beta_5 * beta_1) / (2 * beta_2) - beta_3) /
+             (2 * beta_4 - (beta_5^2 / (2 * beta_2)))),
+    z_opt = - ((beta_1 + beta_5 * x_opt) / (2 * beta_2)),
+    y_opt = beta_0 +
+            beta_1 * z_opt + beta_2 * z_opt^2 +
+            beta_3 * x_opt + beta_4 * x_opt^2 +
+            beta_5 * x_opt * z_opt
+  )
+
+
+```
+
+#  Posterior summary
+```{r}
+posterior_summary <- tibble(
+  Variable = c("x_opt (N rate)", "z_opt (Plant density)", "y_opt (Profit)"),
+  Median = c(median(df_results$x_opt),
+             median(df_results$z_opt),
+             median(df_results$y_opt)),
+  CI_Lower = c(quantile(df_results$x_opt, 0.025),
+               quantile(df_results$z_opt, 0.025),
+               quantile(df_results$y_opt, 0.025)),
+  CI_Upper = c(quantile(df_results$x_opt, 0.975),
+               quantile(df_results$z_opt, 0.975),
+               quantile(df_results$y_opt, 0.975))
+)
+
+posterior_summary
+
+
+```
+
+
+# Visualization 
+```{r}
+
+# x_opt (Input 1)
+ggplot(df_results, aes(x = x_opt)) +
+  geom_density(fill = "skyblue", alpha = 0.5) +
+  geom_vline(xintercept = median(df_results$x_opt), 
+             linetype = "solid", color = "blue", linewidth = 1) +
+  geom_vline(xintercept = quantile(df_results$x_opt, probs = c(0.025, 0.975)),
+             linetype = "dashed", color = "blue") +
+  labs(title = "Posterior Distribution of Optimun N rate",
+       x = "x_opt", y = "Density")
+
+# z_opt (Input 2)
+ggplot(df_results, aes(x = z_opt)) +
+  geom_density(fill = "lightgreen", alpha = 0.5) +
+  geom_vline(xintercept = median(df_results$z_opt), 
+             linetype = "solid", color = "darkgreen", linewidth = 1) +
+  geom_vline(xintercept = quantile(df_results$z_opt, probs = c(0.025, 0.975)),
+             linetype = "dashed", color = "darkgreen") +
+  labs(title = "Posterior Distribution of Optimum Plant Density",
+       x = "z_opt", y = "Density")
+
+# y_opt (Output)
+ggplot(df_results, aes(x = y_opt)) +
+  geom_density(fill = "orange", alpha = 0.5) +
+  geom_vline(xintercept = median(df_results$y_opt), 
+             linetype = "solid", color = "darkorange", linewidth = 1) +
+  geom_vline(xintercept = quantile(df_results$y_opt, probs = c(0.025, 0.975)),
+             linetype = "dashed", color = "darkorange") +
+  labs(title = "Posterior Distribution of Profit",
+       x = "y_opt", y = "Density")
+
+
+
+```
+
+# 3D Surface Plot
+```{r}
+n_seq <- seq(0, 260, by = 5)    # x-axis (e.g., N rate)
+d_seq <- seq(4, 12, by = 0.25)  # z-axis (e.g., plant density)
+grid <- expand.grid(x = n_seq, z = d_seq)
+
+post_medians <- apply(samples_df, 2, median)
+
+grid$y_hat <- with(grid, post_medians["beta_0"] +
+                         post_medians["beta_1"]*z +
+                         post_medians["beta_2"]*z^2 +
+                         post_medians["beta_3"]*x +
+                         post_medians["beta_4"]*x^2 +
+                         post_medians["beta_5"]*x*z)
+
+z_matrix <- acast(grid, z ~ x, value.var = "y_hat")
+
+plot_ly(x = ~n_seq, y = ~d_seq, z = ~z_matrix) %>%
+  add_surface(
+  colorscale = "Viridis",
+  showscale = TRUE,
+  colorbar = list(title = "Profit (USD/ha)")) %>%
+  add_markers(x = round(median(df_results$x_opt),0), 
+              y = round(median(df_results$z_opt),0), 
+              z = round(median(df_results$y_opt),0),
+              marker = list(color = 'red', size = 5)) %>%
+  layout(
+    title = "Response Surface with Optimum Input Combination",
+    scene = list(
+      xaxis = list(title = "x (N rate (kg/ha))"),
+      yaxis = list(title = "z (Plant Density (plants/m2)"),
+      zaxis = list(title = "y (Profit (USD/ha)")
+    )
+  )
+
+```
+
+
+

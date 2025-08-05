@@ -1,0 +1,97 @@
+---
+title: "Economically Optimal Plant Density (EOPD)"
+subtitle: "Estimating the EOPD, using Model averaging and Boostraping aggregate"
+author: "Gustavo Roa, Sofia Cominelli, Raghav Joshi and Bryan Rutter"
+format: 
+  html:
+    self-contained: true
+---
+
+# Load package 
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE, include=FALSE}
+# R stuff and visualization
+library(tidyverse) # Data manipulation and visualization
+
+# Visualization
+library(viridis) # Color palettes
+library(viridisLite) # Color palettes for ggplot2
+
+```
+
+
+# Import Data
+
+```{r}
+raw_data <- read.csv(file = "./Data_example.csv")
+print(raw_data)
+
+
+raw_data <- raw_data %>%
+   mutate(Pl.m2 = as.numeric(as.character(Pl.m2)))
+
+```
+
+# Data transformation
+```{r}
+df <- raw_data %>% 
+  mutate(rev_usd_ha = round(Obs.Yield.Mg.ha*196,2), 
+         Ncost_usd_ha = (Pl.m2*1.10),
+         Seedcost_usd_ha = (Pl.m2*(250/80000)*10000),
+         profit_usd_ha = rev_usd_ha - Ncost_usd_ha - Seedcost_usd_ha)
+
+
+```
+
+
+# EOPD
+## Fit model
+
+```{r}
+# Quadratic
+mod3_EOPD <- lm(formula = profit_usd_ha ~ Pl.m2 + I(Pl.m2^2), data = df) 
+coefs_mod3_EOPD <- coef(mod3_EOPD)
+mod3_EOPD_value <- -coefs_mod3_EOPD["Pl.m2"] / (2 * coefs_mod3_EOPD["I(Pl.m2^2)"])
+
+```
+
+
+## New dataframe
+
+```{r}
+new_data_EOPD <- data.frame(Pl.m2 = seq(from = min(df$Pl.m2), to = max(df$Pl.m2), by = 0.1))
+
+prds_mod3_EOPD <- predict(object = mod3_EOPD, newdata = new_data_EOPD, interval = "confidence") 
+ndatA_mod3_EOPD <- cbind(new_data_EOPD, prds_mod3_EOPD) 
+
+```
+
+
+## Create plot
+
+```{r, fig.width=14, fig.height=8, warning=FALSE}
+
+Fig_EOPD <- ggplot(data = df) + 
+
+  geom_point(aes(x = Pl.m2, y = profit_usd_ha), size  = 3, shape = 21, fill  = "black", color = "gray", alpha = 0.5) +
+  geom_line(data    = ndatA_mod3_EOPD, aes(x = Pl.m2, y = fit, color = "Quadratic (Q)"),linewidth = 1.5) +
+  
+  annotate(geom  = "text", x = 7, y = 100,label = paste("Q =", round(mod3_EOPD_value, 0)),size  = 5) +
+  
+  labs(x= expression(Plant~rate~(plant~m^{-2})),y= expression(Profit~("$"~ha^{-1}))) +
+  
+  scale_color_viridis_d(option= "D") +
+  scale_fill_viridis_d(option= "H", direction= -1) +
+  
+  guides(color = guide_legend(title = "Model")) +
+  
+  theme_classic(base_size = 18) +
+  theme(axis.text= element_text(color = "black"),
+        legend.key= element_rect(color = "white"),
+        legend.position= "right")
+
+Fig_EOPD
+
+```
+
+
