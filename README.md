@@ -1,4 +1,4 @@
-## NUE Hackathon: Economic Optimization of Nitrogen Rate and Plant Density
+## Economic Optimization of Nitrogen Rate and Plant Density
 
 This repository contains **code examples only** (no datasets) used for modeling the economic optimization of nitrogen (N) fertilizer rate and plant density in corn production. These analyses were developed for the **2025 NUE Hackathon**.
 
