@@ -2,7 +2,7 @@
 
 This repository contains **code examples only** (no datasets) used for modeling the economic optimization of nitrogen (N) fertilizer rate and plant density in corn production. These analyses were developed for the **2025 NUE Hackathon** for the N-Sight team.
 
-### Authors
+### Team members
 
 - [**Gustavo Roa**](https://github.com/Gustavo-Roa)  
 - [**Sofia Cominelli**](https://github.com/SCominelli)
@@ -30,7 +30,8 @@ This repository contains **code examples only** (no datasets) used for modeling 
   ![EOPD Response Curve](figures/EOPD.png)
 
 ### **Joint Optimization of N Rate × Plant Density**  
-  Modeled using a Bayesian quadratic response surface to identify combinations that maximize profit.  
+Modeled using a Bayesian quadratic response surface to identify combinations that maximize profit.  
+Originally developed by [**Carlos Hernandez**](https://github.com/Carlitosh) and subsequently modified by the N-Sight team.
 
   **Surface Response Model (Video)**  
   ![Surface Response Model Animation](figures/surface_response.gif)
