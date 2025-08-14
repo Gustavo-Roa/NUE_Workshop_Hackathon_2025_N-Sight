@@ -38,7 +38,3 @@ This repository contains **code examples only** (no datasets) used for modeling 
 - `NUE Workshop Hackathon 2025.Rproj` – RStudio project file.
 
 ---
-
-## Data Access
-
-The original Hackathon dataset is **not included** in this repository.
