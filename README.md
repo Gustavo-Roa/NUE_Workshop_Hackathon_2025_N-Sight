@@ -11,7 +11,9 @@ This repository contains **code examples only** (no datasets) used for modeling 
   - Linear-plateau  
   - Quadratic-plateau  
   - Quadratic  
-  - Mitscherlich  
+  - Mitscherlich
+  
+  Model predictions are averaged using **Akaike Information Criterion (AIC) weights**, and **confidence intervals** for the EONR are obtained via **bootstrap aggregation (bagging)**.
 
   ![EONR Response Curve](figures/EONR.png)
 
