@@ -1,21 +1,32 @@
-# NUE Hackathon: Economic Optimization of Nitrogen Rate and Plant Density
+## NUE Hackathon: Economic Optimization of Nitrogen Rate and Plant Density
 
 This repository contains **code examples only** (no datasets) used for modeling the economic optimization of nitrogen (N) fertilizer rate and plant density in corn production. These analyses were developed for the **2025 NUE Hackathon**.
+
+---
 
 ## Objectives
 
 - **Economic Optimum Nitrogen Rate (EONR)**  
-  Estimated using four agronomic response models:
+  Estimated using four agronomic response models:  
   - Linear-plateau  
   - Quadratic-plateau  
   - Quadratic  
   - Mitscherlich  
 
+  ![EONR Response Curve](figures/EONR.png)
+
 - **Economic Optimum Plant Density (EOPD)**  
-  Estimated using a quadratic model.
+  Estimated using a quadratic model.  
+
+  ![EOPD Response Curve](figures/EOPD.png)
 
 - **Joint Optimization of N Rate × Plant Density**  
-  Modeled using a Bayesian quadratic response surface to identify combinations that maximize profit.
+  Modeled using a Bayesian quadratic response surface to identify combinations that maximize profit.  
+
+  **Surface Response Model (Video)**  
+  ![Surface Response Model Animation](figures/surface_response.gif)
+
+---
 
 ## Repository Structure
 
@@ -23,6 +34,8 @@ This repository contains **code examples only** (no datasets) used for modeling 
 - `Economically_Optimal_Plant_Density.qmd` – Quarto file for EOPD modeling using a quadratic model.  
 - `Bayesian_Quadratic_Response_Surface.qmd` – Quarto file for fitting the Bayesian response surface to N × plant density.  
 - `NUE Workshop Hackathon 2025.Rproj` – RStudio project file.
+
+---
 
 ## Data Access
 
