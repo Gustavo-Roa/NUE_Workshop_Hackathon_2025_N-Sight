@@ -1,6 +1,6 @@
 ---
 title: "Bayesian Quadratic Response-Surface Model"
-author: "Gustavo Roa, Sofia Cominelli, Raghav Joshi and Bryan Rutter"
+author: "Carlos Hernandez and Gustavo Roa"
 format: 
   html:
     self-contained: false
@@ -249,6 +249,7 @@ plot_ly(x = ~n_seq, y = ~d_seq, z = ~z_matrix) %>%
   )
 
 ```
+
 
 
 
